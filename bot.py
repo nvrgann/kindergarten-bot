@@ -8,17 +8,25 @@ from selenium.webdriver.support import expected_conditions as EC
 import telebot
 from config import TOKEN, CHAT_ID
 
-VERSION = "v8.4"
+VERSION = "v8.5"
 SILENT = True
 ALWAYS_REPORT = True
 
-def send(text, silent=False):
-    print(f"[{VERSION}] {text}")
-    try:
-        bot = telebot.TeleBot(TOKEN)
-        bot.send_message(CHAT_ID, f"[{VERSION}] {text}", disable_notification=(silent and SILENT))
-    except Exception as e:
-        print(f"[{VERSION}] Ошибка отправки сообщения: {e}")
+log_text = ""
+
+def log(text, silent=False):
+    global log_text
+    timestamp = f"[{VERSION}] {text}"
+    print(timestamp)
+    log_text += timestamp + "\n"
+
+def send_log():
+    if log_text.strip():
+        try:
+            bot = telebot.TeleBot(TOKEN)
+            bot.send_message(CHAT_ID, log_text.strip(), disable_notification=SILENT)
+        except Exception as e:
+            print(f"[{VERSION}] Ошибка при отправке лога: {e}")
 
 def wait_table_reload(wait):
     try:
@@ -31,14 +39,15 @@ def select_language(driver, wait):
     try:
         lang_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(@class, 'lang')]")))
         lang_text = lang_btn.text.strip().lower()
+        log(f"Текущий язык: {lang_text}")
         if "қаз" in lang_text:
-            send("Переключаем язык на русский")
+            log("Переключаем язык на русский")
             lang_btn.click()
             wait_table_reload(wait)
         else:
-            send("Язык уже русский")
-    except:
-        send("Ошибка при переключении языка")
+            log("Язык уже русский")
+    except Exception as e:
+        log("Ошибка при переключении языка")
 
 def select_filter(wait, driver, index, value):
     try:
@@ -51,7 +60,7 @@ def select_filter(wait, driver, index, value):
         wait_table_reload(wait)
         return True
     except Exception as e:
-        send(f"Ошибка выбора фильтра '{value}': {type(e).__name__}")
+        log(f"Ошибка выбора фильтра '{value}': {type(e).__name__}")
         return False
 
 def search_places(driver, keyword="№105"):
@@ -72,7 +81,7 @@ options.add_argument('--disable-dev-shm-usage')
 driver = webdriver.Chrome(options=options)
 
 def run_check():
-    send(f"bot.py запущен — {datetime.now().strftime('%H:%M:%S')}")
+    log(f"bot.py запущен — {datetime.now().strftime('%H:%M:%S')}")
     results = []
     scenarios = [
         ("2022", "№105"),
@@ -86,7 +95,7 @@ def run_check():
             driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
             wait = WebDriverWait(driver, 60)
 
-            send(f"Этап: Гос + {year} + {keyword}")
+            log(f"Этап: Гос + {year} + {keyword}")
 
             select_language(driver, wait)
 
@@ -109,15 +118,16 @@ def run_check():
                 break
 
     except Exception as e:
-        send(f"Глобальная ошибка: {type(e).__name__} — {str(e)}")
+        log(f"Глобальная ошибка: {type(e).__name__} — {str(e)}")
 
     finally:
         driver.quit()
         if results:
             for msg in results:
-                send(msg, silent=not ("№105" in msg or "Найдено" in msg))
+                log(msg)
         elif ALWAYS_REPORT:
-            send("По всем сценариям ничего не найдено", silent=True)
+            log("По всем сценариям ничего не найдено")
+        send_log()
 
 if __name__ == "__main__":
     run_check()
