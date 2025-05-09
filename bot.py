@@ -1,6 +1,5 @@
 import time
 import telebot
-import traceback
 from config import TOKEN, CHAT_ID
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -8,15 +7,31 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-VERSION = "v7.3"
-print(f"[{VERSION}] bot.py запущен")  # лог в Render сразу
+VERSION = "v7.4"
+print(f"[{VERSION}] bot.py запущен")
 
 def send_message(text):
+    print(f"[{VERSION}] {text}")
     bot = telebot.TeleBot(TOKEN)
     bot.send_message(CHAT_ID, f"[{VERSION}] {text}")
 
+def select_type_ddo(wait, driver):
+    print("Пробуем выбрать тип ДДО...")
+    for attempt in range(2):
+        try:
+            inputs = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//input[@role='combobox']")))
+            if len(inputs) >= 6:
+                type_input = inputs[5]
+                type_input.click()
+                wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
+                wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Государственный детский сад')]"))).click()
+                return True
+        except Exception as e:
+            print(f"Попытка {attempt+1} — не удалось выбрать тип ДДО: {type(e).__name__}")
+            time.sleep(3)
+    return False
+
 def check_kindergarten():
-    send_message("Шаг 1: запуск и открытие сайта")
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
@@ -27,54 +42,49 @@ def check_kindergarten():
         driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
         wait = WebDriverWait(driver, 60)
 
-        # Шаг 2: выбор типа ДДО
-        send_message("Шаг 2: Выбор типа ДДО = Государственный детский сад")
-        try:
-            inputs = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//input[@role='combobox']")))
-            type_input = None
-            for inp in inputs:
-                label = inp.get_attribute("aria-label") or ""
-                if "Тип" in label:
-                    type_input = inp
-                    break
+        if not select_type_ddo(wait, driver):
+            return "Ошибка: фильтр 'Тип ДДО' не найден после 2 попыток."
 
-            if not type_input:
-                return "Ошибка: поле 'Тип ДДО' не найдено"
-
-            type_input.click()
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Государственный детский сад')]"))).click()
-            time.sleep(1)
-        except Exception as e:
-            return f"Ошибка при выборе типа ДДО: {type(e).__name__} — {str(e)}"
-
-        # Шаг 3: проверка наличия года 2022
-        send_message("Шаг 3: Проверка наличия группы 2022 года")
+        # Выбор года
+        print("Выбираем год 2022")
         try:
             year_input = wait.until(EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[2]")))
             year_input.click()
             wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
             time.sleep(1)
-            options = driver.find_elements(By.XPATH, "//div[contains(@class, 'dx-item')]")
-            year_2022_exists = any("2022" in el.text for el in options)
-
+            options_list = driver.find_elements(By.XPATH, "//div[contains(@class, 'dx-item')]")
+            year_2022_exists = any("2022" in el.text for el in options_list)
             if not year_2022_exists:
-                send_message("Группы 2022 года отсутствуют для выбранного фильтра.")
-                return 0
-
+                return "Группы 2022 года отсутствуют для выбранного фильтра."
             wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'2022')]"))).click()
         except Exception as e:
             return f"Ошибка при выборе года: {type(e).__name__} — {str(e)}"
 
-        # Шаг 4: поиск строк
-        send_message("Шаг 4: Проверка таблицы")
-        try:
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-row")))
-            rows = driver.find_elements(By.CLASS_NAME, "dx-row")
-            count = sum(1 for row in rows if "№105" in row.text)
-            return count
-        except Exception as e:
-            return f"Ошибка при чтении таблицы: {type(e).__name__} — {str(e)}"
+        # Поиск садиков
+        print("Читаем таблицу")
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-row")))
+        rows = driver.find_elements(By.CLASS_NAME, "dx-row")
+        if not rows:
+            return "Ошибка: таблица не загрузилась или пуста."
+
+        # Сбор данных
+        all_found = []
+        priority_found = 0
+        for row in rows:
+            text = row.text.strip()
+            if not text or "мест" not in text:
+                continue
+            if "№105" in text:
+                priority_found += 1
+            else:
+                all_found.append(text)
+
+        if priority_found > 0:
+            return f"Найдено в 105 садике: {priority_found} мест(а)"
+        elif all_found:
+            return "В 105 садике мест нет. Зато есть:\n" + "\n".join(f"— {r}" for r in all_found)
+        else:
+            return None  # ничего не отправлять
 
     except Exception as e:
         return f"Глобальная ошибка: {type(e).__name__} — {str(e)}"
@@ -83,12 +93,5 @@ def check_kindergarten():
 
 if __name__ == "__main__":
     result = check_kindergarten()
-    if isinstance(result, int):
-        if result > 0:
-            send_message(f"Найдено в 105 садике: {result} мест(а)")
-        elif result == 0:
-            pass
-        else:
-            send_message("В 105 садике мест нет.")
-    else:
+    if result:
         send_message(result)
