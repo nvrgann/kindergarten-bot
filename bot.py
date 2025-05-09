@@ -1,5 +1,6 @@
 import time
 import telebot
+import traceback
 from config import TOKEN, CHAT_ID
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -7,7 +8,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-VERSION = "v7.0"
+VERSION = "v7.1"
 
 def send_message(text):
     bot = telebot.TeleBot(TOKEN)
@@ -57,7 +58,8 @@ def check_kindergarten():
         return count
 
     except Exception as e:
-        return f"Ошибка: {e}"
+        error_type = type(e).__name__
+        return f"Ошибка: {error_type} — {str(e)}"
     finally:
         driver.quit()
 
