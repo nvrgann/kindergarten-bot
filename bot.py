@@ -4,17 +4,24 @@ import telebot
 from config import TOKEN, CHAT_ID
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+import urllib3.exceptions
 
-VERSION = "v8.1"
+VERSION = "v8.2"
 ALWAYS_REPORT = True
 VERBOSE = True
 SILENT = True
 
 log_lines = []
 start_timestamp = datetime.now()
+bot = telebot.TeleBot(TOKEN)
+
+@bot.message_handler(func=lambda m: True)
+def ignore_all_messages(message):
+    pass  # молчание
 
 def log(text):
     msg = f"[{VERSION}] {text}"
@@ -23,20 +30,24 @@ def log(text):
 
 def send_log():
     if VERBOSE and log_lines:
-        bot = telebot.TeleBot(TOKEN)
-        bot.send_message(CHAT_ID, "\n".join(log_lines), disable_notification=SILENT)
+        try:
+            bot.send_message(CHAT_ID, "\n".join(log_lines), disable_notification=SILENT)
+        except Exception:
+            pass
 
 def send_result(text):
     silent = SILENT
     if "Найдено в 105" in text or "Зато есть:" in text:
         silent = False
-    bot = telebot.TeleBot(TOKEN)
-    bot.send_message(CHAT_ID, f"[{VERSION}] {text}", disable_notification=silent)
+    try:
+        bot.send_message(CHAT_ID, f"[{VERSION}] {text}", disable_notification=silent)
+    except Exception:
+        pass
 
 def try_select_ddo(wait, driver):
     try:
-        ddo_input = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@aria-label='Тип ДДО']")))
-        ddo_input.click()
+        input_ = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@aria-label='Тип ДДО']")))
+        input_.click()
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
         time.sleep(1)
         driver.find_element(By.XPATH, "//div[contains(text(),'Государственный детский сад')]").click()
@@ -53,28 +64,31 @@ def check_kindergarten():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    driver = webdriver.Chrome(options=options)
+
+    try:
+        driver = webdriver.Chrome(options=options)
+    except Exception as e:
+        return f"Ошибка запуска Chrome: {type(e).__name__} — {str(e)}"
 
     def attempt():
-        driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
-        wait = WebDriverWait(driver, 60)
-        log("Страница открыта")
-        log(f"Первое действие: {datetime.now().strftime('%H:%M:%S')}")
-        log("Шаг 1: выбор 'Тип ДДО'")
-        if try_select_ddo(wait, driver):
-            return True
-        return False
+        try:
+            driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
+            wait = WebDriverWait(driver, 60)
+            log("Страница открыта")
+            log(f"Первое действие: {datetime.now().strftime('%H:%M:%S')}")
+            log("Шаг 1: выбор 'Тип ДДО'")
+            return try_select_ddo(wait, driver)
+        except Exception as e:
+            log(f"Ошибка при загрузке страницы: {type(e).__name__}")
+            return False
 
-    success = attempt()
-    if not success:
-        log("Перезагружаем страницу и пробуем снова...")
-        time.sleep(2)
-        success = attempt()
-        if not success:
-            driver.quit()
-            log("Повтор не помог. Переходим к поиску любых групп 2022 года.")
-    
     try:
+        if not attempt():
+            log("Перезагружаем страницу и пробуем снова...")
+            time.sleep(2)
+            if not attempt():
+                log("Повтор не помог. Переходим к поиску любых групп 2022 года.")
+
         wait = WebDriverWait(driver, 30)
         year_input = wait.until(EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[2]")))
         year_input.click()
@@ -115,15 +129,20 @@ def check_kindergarten():
         else:
             return "Проверка завершена. Свободных мест нет."
 
-    except Exception as e:
+    except (urllib3.exceptions.MaxRetryError, WebDriverException) as e:
         return f"Глобальная ошибка: {type(e).__name__} — {str(e)}"
+    except Exception as e:
+        return f"Непредвиденная ошибка: {type(e).__name__} — {str(e)}"
     finally:
-        driver.quit()
+        try:
+            driver.quit()
+        except:
+            pass
         log(f"Выполнено за {round(time.time() - start_time, 2)} сек.")
 
 if __name__ == "__main__":
     result = check_kindergarten()
     if result or ALWAYS_REPORT:
-        log(result if result else "Проверка завершена. Свободных мест нет.")
+        log(result if result else "Проверка завершена.")
         send_result(result if result else "Проверка завершена.")
     send_log()
