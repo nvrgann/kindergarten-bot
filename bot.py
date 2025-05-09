@@ -1,4 +1,4 @@
-эimport time
+import time
 from datetime import datetime
 import telebot
 from config import TOKEN, CHAT_ID
