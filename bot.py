@@ -1,4 +1,5 @@
 import time
+from datetime import datetime
 import telebot
 from config import TOKEN, CHAT_ID
 from selenium import webdriver
@@ -7,15 +8,25 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-VERSION = "v7.6"
+VERSION = "v7.7"
 ALWAYS_REPORT = True
-print(f"[{VERSION}] bot.py запущен")
+VERBOSE = True
 
-def send_message(text):
+log_lines = []
+
+def log(text):
     message = f"[{VERSION}] {text}"
     print(message)
+    log_lines.append(message)
+
+def send_log():
+    if VERBOSE and log_lines:
+        bot = telebot.TeleBot(TOKEN)
+        bot.send_message(CHAT_ID, "\n".join(log_lines))
+
+def send_message(text):
     bot = telebot.TeleBot(TOKEN)
-    bot.send_message(CHAT_ID, message)
+    bot.send_message(CHAT_ID, f"[{VERSION}] {text}")
 
 def find_combobox_with_option(wait, driver, target_text):
     inputs = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//input[@role='combobox']")))
@@ -34,7 +45,8 @@ def find_combobox_with_option(wait, driver, target_text):
     return False
 
 def check_kindergarten():
-    send_message("bot.py запущен")
+    start_time = time.time()
+    log("bot.py запущен")
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
@@ -45,11 +57,11 @@ def check_kindergarten():
         driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
         wait = WebDriverWait(driver, 60)
 
-        send_message("Шаг 1: Поиск и выбор фильтра 'Тип ДДО'")
+        log("Шаг 1: Поиск и выбор фильтра 'Тип ДДО'")
         if not find_combobox_with_option(wait, driver, "Государственный детский сад"):
             return "Ошибка: не удалось найти и выбрать 'Государственный детский сад'"
 
-        send_message("Шаг 2: Выбор года = 2022")
+        log("Шаг 2: Выбор года = 2022")
         try:
             year_input = wait.until(EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[2]")))
             year_input.click()
@@ -63,7 +75,7 @@ def check_kindergarten():
         except Exception as e:
             return f"Ошибка при выборе года: {type(e).__name__} — {str(e)}"
 
-        send_message("Шаг 3: Проверка таблицы")
+        log("Шаг 3: Проверка таблицы")
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-row")))
         rows = driver.find_elements(By.CLASS_NAME, "dx-row")
         if not rows:
@@ -91,8 +103,11 @@ def check_kindergarten():
         return f"Глобальная ошибка: {type(e).__name__} — {str(e)}"
     finally:
         driver.quit()
+        duration = round(time.time() - start_time, 2)
+        log(f"Выполнено за {duration} сек.")
 
 if __name__ == "__main__":
     result = check_kindergarten()
     if result or ALWAYS_REPORT:
-        send_message(result if result else "Проверка завершена. Свободных мест нет.")
+        log(result if result else "Проверка завершена. Свободных мест нет.")
+    send_log()
