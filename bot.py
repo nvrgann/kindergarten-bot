@@ -1,4 +1,4 @@
-import time
+эimport time
 from datetime import datetime
 import telebot
 from config import TOKEN, CHAT_ID
@@ -8,11 +8,12 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-VERSION = "v7.7"
+VERSION = "v7.8"
 ALWAYS_REPORT = True
 VERBOSE = True
 
 log_lines = []
+start_timestamp = datetime.now()
 
 def log(text):
     message = f"[{VERSION}] {text}"
@@ -29,24 +30,29 @@ def send_message(text):
     bot.send_message(CHAT_ID, f"[{VERSION}] {text}")
 
 def find_combobox_with_option(wait, driver, target_text):
-    inputs = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//input[@role='combobox']")))
-    for i, combobox in enumerate(inputs):
-        try:
-            combobox.click()
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
-            time.sleep(0.5)
-            options = driver.find_elements(By.XPATH, "//div[contains(@class,'dx-item')]")
-            for option in options:
-                if target_text in option.text:
-                    option.click()
-                    return True
-        except Exception:
-            continue
+    try:
+        inputs = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//input[@role='combobox']")))
+        for i, combobox in enumerate(inputs):
+            try:
+                log(f"Проверяем combobox [{i+1}]...")
+                combobox.click()
+                wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
+                time.sleep(0.5)
+                options = driver.find_elements(By.XPATH, "//div[contains(@class,'dx-item')]")
+                for option in options:
+                    if target_text in option.text:
+                        option.click()
+                        log("Найден нужный фильтр!")
+                        return True
+            except Exception:
+                continue
+    except Exception as e:
+        log(f"Ошибка при поиске фильтров: {type(e).__name__}")
     return False
 
 def check_kindergarten():
-    start_time = time.time()
-    log("bot.py запущен")
+    script_started = time.time()
+    log(f"bot.py запущен — {start_timestamp.strftime('%H:%M:%S')}")
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
@@ -56,6 +62,10 @@ def check_kindergarten():
     try:
         driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
         wait = WebDriverWait(driver, 60)
+        log("Страница открыта")
+
+        first_action_time = datetime.now()
+        log(f"Первое действие: {first_action_time.strftime('%H:%M:%S')}")
 
         log("Шаг 1: Поиск и выбор фильтра 'Тип ДДО'")
         if not find_combobox_with_option(wait, driver, "Государственный детский сад"):
@@ -103,7 +113,7 @@ def check_kindergarten():
         return f"Глобальная ошибка: {type(e).__name__} — {str(e)}"
     finally:
         driver.quit()
-        duration = round(time.time() - start_time, 2)
+        duration = round(time.time() - script_started, 2)
         log(f"Выполнено за {duration} сек.")
 
 if __name__ == "__main__":
