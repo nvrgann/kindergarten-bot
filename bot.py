@@ -8,7 +8,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import telebot
 from config import TOKEN, CHAT_ID
 
-VERSION = "v8.3"
+VERSION = "v8.4"
 SILENT = True
 ALWAYS_REPORT = True
 
@@ -18,62 +18,52 @@ def send(text, silent=False):
         bot = telebot.TeleBot(TOKEN)
         bot.send_message(CHAT_ID, f"[{VERSION}] {text}", disable_notification=(silent and SILENT))
     except Exception as e:
-        print(f"Ошибка при отправке сообщения: {e}")
+        print(f"[{VERSION}] Ошибка отправки сообщения: {e}")
 
-def log_step(title):
-    send(title)
+def wait_table_reload(wait):
+    try:
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-loadpanel-message")))
+        wait.until_not(EC.presence_of_element_located((By.CLASS_NAME, "dx-loadpanel-message")))
+    except:
+        pass
 
-def search_places(wait, driver, keyword="№105"):
-    rows = driver.find_elements(By.CLASS_NAME, "dx-row")
-    results = []
-    for row in rows:
-        text = row.text.strip()
-        if not text or "мест" not in text:
-            continue
-        if keyword in text:
-            results.append(text)
-    return results
+def select_language(driver, wait):
+    try:
+        lang_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(@class, 'lang')]")))
+        lang_text = lang_btn.text.strip().lower()
+        if "қаз" in lang_text:
+            send("Переключаем язык на русский")
+            lang_btn.click()
+            wait_table_reload(wait)
+        else:
+            send("Язык уже русский")
+    except:
+        send("Ошибка при переключении языка")
 
-def select_filter(wait, index, value):
+def select_filter(wait, driver, index, value):
     try:
         inputs = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//input[@role='combobox']")))
         if index >= len(inputs):
             return False
         inputs[index].click()
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
-        time.sleep(1)
-        driver.find_element(By.XPATH, f"//div[contains(text(),'{value}')]").click()
+        wait.until(EC.element_to_be_clickable((By.XPATH, f"//div[contains(text(),'{value}')]"))).click()
+        wait_table_reload(wait)
         return True
-    except:
+    except Exception as e:
+        send(f"Ошибка выбора фильтра '{value}': {type(e).__name__}")
         return False
 
-def try_search(year, keyword="№105"):
-    try:
-        log_step(f"Этап: Гос + {year} + {keyword if keyword != 'любой' else 'все'}")
-        driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
-        wait = WebDriverWait(driver, 30)
-
-        if not select_filter(wait, 5, "Государственный детский сад"):
-            return f"Не удалось выбрать 'Государственный детский сад'"
-
-        if not select_filter(wait, 1, year):
-            return f"Год {year} отсутствует"
-
-        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-row")))
-        time.sleep(1)
-        if keyword == "любой":
-            results = search_places(wait, driver, "")
-        else:
-            results = search_places(wait, driver, keyword)
-
-        if results:
-            if keyword == "№105":
-                return f"Найдено в №105 ({year}): {len(results)} мест"
-            else:
-                return f"Найдено ({year}):\n" + "\n".join(f"— {r}" for r in results)
-        return None
-    except Exception as e:
-        return f"Ошибка поиска: {type(e).__name__} — {str(e)}"
+def search_places(driver, keyword="№105"):
+    rows = driver.find_elements(By.CLASS_NAME, "dx-row")
+    results = []
+    for row in rows:
+        text = row.text.strip()
+        if not text or "мест" not in text:
+            continue
+        if keyword in text or keyword == "любой":
+            results.append(text)
+    return results
 
 options = Options()
 options.add_argument('--headless')
@@ -84,7 +74,6 @@ driver = webdriver.Chrome(options=options)
 def run_check():
     send(f"bot.py запущен — {datetime.now().strftime('%H:%M:%S')}")
     results = []
-
     scenarios = [
         ("2022", "№105"),
         ("2022", "любой"),
@@ -92,19 +81,43 @@ def run_check():
         ("2020", "любой")
     ]
 
-    for year, keyword in scenarios:
-        result = try_search(year, keyword)
-        if result:
-            results.append(result)
-            if "№105" in result or "Найдено" in result:
+    try:
+        for year, keyword in scenarios:
+            driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
+            wait = WebDriverWait(driver, 60)
+
+            send(f"Этап: Гос + {year} + {keyword}")
+
+            select_language(driver, wait)
+
+            if not select_filter(wait, driver, 5, "Государственный детский сад"):
+                results.append("Не удалось выбрать 'Государственный детский сад'")
+                continue
+
+            if not select_filter(wait, driver, 1, year):
+                results.append(f"Год {year} отсутствует")
+                continue
+
+            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-row")))
+            found = search_places(driver, keyword)
+
+            if found:
+                if keyword == "№105":
+                    results.append(f"Найдено в №105 ({year}): {len(found)} мест")
+                else:
+                    results.append(f"Найдено ({year}):\n" + "\n".join(f"— {r}" for r in found))
                 break
 
-    driver.quit()
-    if results:
-        for msg in results:
-            send(msg, silent=not ("№105" in msg or "Найдено" in msg))
-    elif ALWAYS_REPORT:
-        send("По всем сценариям ничего не найдено", silent=True)
+    except Exception as e:
+        send(f"Глобальная ошибка: {type(e).__name__} — {str(e)}")
+
+    finally:
+        driver.quit()
+        if results:
+            for msg in results:
+                send(msg, silent=not ("№105" in msg or "Найдено" in msg))
+        elif ALWAYS_REPORT:
+            send("По всем сценариям ничего не найдено", silent=True)
 
 if __name__ == "__main__":
     run_check()
