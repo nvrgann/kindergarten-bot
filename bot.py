@@ -8,68 +8,75 @@ from selenium.webdriver.support import expected_conditions as EC
 import telebot
 from config import TOKEN, CHAT_ID
 
-VERSION = "v9.9"
+VERSION = "v9.10"
 URL = "https://balabaqsha.open-almaty.kz/Common/Statistics/Free"
 
 bot = telebot.TeleBot(TOKEN)
+full_log = []
 
 def log(msg):
     timestamp = datetime.now().strftime("%H:%M:%S")
-    full_msg = f"[{VERSION}] {timestamp} — {msg}"
-    print(full_msg)
-    try:
-        bot.send_message(CHAT_ID, full_msg)
-    except:
-        pass
+    line = f"[{VERSION}] {timestamp} — {msg}"
+    print(line)
+    full_log.append(line)
+    return line
 
-def wait_and_click_xpath(driver, xpath, timeout=60):
+def send(text, silent=True):
+    bot.send_message(CHAT_ID, f"[{VERSION}] {text}", disable_notification=silent)
+
+def send_log():
+    if full_log:
+        bot.send_message(CHAT_ID, "\n".join(full_log[-50:]))
+
+def try_click_language(driver, wait):
+    log("Ожидание: //a[contains(@href, '/ru')] (до 60 сек.)")
     try:
-        log(f"Ожидание: {xpath} (до {timeout} сек.)")
-        elem = WebDriverWait(driver, timeout).until(
-            EC.element_to_be_clickable((By.XPATH, xpath))
-        )
-        elem.click()
+        lang_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, '/ru')]")))
+        lang_button.click()
+        time.sleep(1)
+        log("Язык переключён на русский")
         return True
     except Exception as e:
-        log(f"Ошибка при ожидании '{xpath}': {type(e).__name__}")
+        log(f"Ошибка при ожидании '//a[contains(@href, '/ru')]': {type(e).__name__}")
         return False
 
-def switch_to_russian(driver):
-    try:
-        # Проверка: уже русский?
-        if "ru" in driver.current_url:
-            log("Русский язык уже включён")
-            return True
-        return wait_and_click_xpath(driver, "//a[contains(@href, '/ru')]", 60)
-    except Exception as e:
-        log(f"Ошибка при переключении языка: {type(e).__name__}")
-        return False
+def open_site():
+    log("Страница открыта")
 
-def run_check():
-    log(f"{VERSION} bot.py запущен — {datetime.now().strftime('%H:%M:%S')}")
-    chrome_options = Options()
-    chrome_options.add_argument('--headless')
-    chrome_options.add_argument('--no-sandbox')
-    chrome_options.add_argument('--disable-dev-shm-usage')
-    driver = webdriver.Chrome(options=chrome_options)
+def run_scenario(label):
+    log(f"Этап: {label}")
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    driver = webdriver.Chrome(options=options)
 
     try:
-        for year in [2022, 2020]:
-            for priority in ["№105", "all"]:
-                log(f"Этап: Гос + {year} + {priority}")
-                driver.get(URL)
-                time.sleep(3)
+        driver.get(URL)
+        open_site()
+        wait = WebDriverWait(driver, 60)
+
+        for attempt in range(3):
+            success = try_click_language(driver, wait)
+            if success:
+                break
+            else:
+                log("Ошибка при переключении языка")
+                driver.refresh()
                 log("Страница открыта")
-                if not switch_to_russian(driver):
-                    log("Ошибка при переключении языка")
-                    continue
-                # Остальная логика фильтрации и проверки здесь (пока опущена)
-                # ...
-                time.sleep(1)
-    except Exception as e:
-        log(f"Глобальная ошибка: {type(e).__name__} — {str(e)}")
+        else:
+            log("Не удалось переключить язык после 3 попыток")
+
     finally:
         driver.quit()
 
+def main():
+    log(f"{VERSION} bot.py запущен — {datetime.now().strftime('%H:%M:%S')}")
+    run_scenario("Гос + 2022 + №105")
+    run_scenario("Гос + 2022 + all")
+    run_scenario("Гос + 2020 + №105")
+    run_scenario("Гос + 2020 + all")
+    send_log()
+
 if __name__ == "__main__":
-    run_check()
+    main()
