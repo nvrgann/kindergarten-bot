@@ -12,7 +12,7 @@ def send_message(text):
     bot.send_message(CHAT_ID, text)
 
 def check_kindergarten():
-    send_message("Шаг 1: Запуск и открытие сайта")
+    send_message("Шаг 1: запуск и открытие сайта")
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
