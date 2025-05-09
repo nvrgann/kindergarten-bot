@@ -8,7 +8,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-VERSION = "v7.2"
+VERSION = "v7.3"
+print(f"[{VERSION}] bot.py запущен")  # лог в Render сразу
 
 def send_message(text):
     bot = telebot.TeleBot(TOKEN)
@@ -24,12 +25,22 @@ def check_kindergarten():
 
     try:
         driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
-        wait = WebDriverWait(driver, 30)
+        wait = WebDriverWait(driver, 60)
 
         # Шаг 2: выбор типа ДДО
         send_message("Шаг 2: Выбор типа ДДО = Государственный детский сад")
         try:
-            type_input = wait.until(EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[6]")))
+            inputs = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//input[@role='combobox']")))
+            type_input = None
+            for inp in inputs:
+                label = inp.get_attribute("aria-label") or ""
+                if "Тип" in label:
+                    type_input = inp
+                    break
+
+            if not type_input:
+                return "Ошибка: поле 'Тип ДДО' не найдено"
+
             type_input.click()
             wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
             wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Государственный детский сад')]"))).click()
