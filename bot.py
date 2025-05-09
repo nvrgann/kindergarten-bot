@@ -13,34 +13,53 @@ def check_kindergarten():
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     driver = webdriver.Chrome(options=options)
+
     try:
         driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
+        wait = WebDriverWait(driver, 20)
 
-        # Ожидание загрузки фильтров
-        WebDriverWait(driver, 30).until(
-            EC.presence_of_element_located((By.CLASS_NAME, "dx-page-size"))
+        # Ожидаем кнопку "100 строк на странице"
+        page_size_button = wait.until(
+            EC.element_to_be_clickable((By.CLASS_NAME, "dx-page-size"))
         )
+        page_size_button.click()
 
-        # Выбор "100 записей на страницу"
-        driver.find_element(By.CLASS_NAME, "dx-page-size").click()
-        driver.find_element(By.XPATH, "//div[contains(text(),'100')]").click()
+        # Ожидаем появление пункта "100"
+        option_100 = wait.until(
+            EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'100')]"))
+        )
+        option_100.click()
 
-        # Выбор фильтра "Год группы"
-        time.sleep(2)
-        driver.find_elements(By.CLASS_NAME, "dx-texteditor-input")[1].click()
-        driver.find_element(By.XPATH, "//div[contains(text(),'2022')]").click()
+        # Фильтр "Год группы" (вторая строка фильтра)
+        year_filter_input = wait.until(
+            EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[2]"))
+        )
+        year_filter_input.click()
 
-        # Выбор фильтра "Тип ДДО"
-        time.sleep(1)
-        driver.find_elements(By.CLASS_NAME, "dx-texteditor-input")[5].click()
-        driver.find_element(By.XPATH, "//div[contains(text(),'Государственный детский сад')]").click()
+        # Ждём появление пункта "2022"
+        year_option = wait.until(
+            EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'2022')]"))
+        )
+        year_option.click()
 
-        # Ждём появления строк таблицы
-        WebDriverWait(driver, 10).until(
+        # Фильтр "Тип ДДО" (шестая строка фильтра)
+        type_filter_input = wait.until(
+            EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[6]"))
+        )
+        type_filter_input.click()
+
+        # Ждём "Государственный детский сад"
+        type_option = wait.until(
+            EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Государственный детский сад')]"))
+        )
+        type_option.click()
+
+        # Ждём загрузку строк таблицы
+        wait.until(
             EC.presence_of_element_located((By.CLASS_NAME, "dx-row"))
         )
 
-        # Считаем количество нужных строк
+        # Считаем строки с "№105"
         rows = driver.find_elements(By.CLASS_NAME, "dx-row")
         count = sum(1 for row in rows if "№105" in row.text)
         return count
