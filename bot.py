@@ -13,42 +13,44 @@ def check_kindergarten():
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     driver = webdriver.Chrome(options=options)
+    wait = WebDriverWait(driver, 30)
 
     try:
         driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
-        wait = WebDriverWait(driver, 30)
 
-        # Выбор "100 записей на страницу"
-        page_size_button = wait.until(EC.element_to_be_clickable((By.CLASS_NAME, "dx-page-size")))
-        page_size_button.click()
-        wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'100')]"))).click()
+        try:
+            page_size_button = wait.until(EC.element_to_be_clickable((By.CLASS_NAME, "dx-page-size")))
+            page_size_button.click()
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'100')]"))).click()
+        except Exception as e:
+            return f"Ошибка на шаге: выбор количества строк — {e}"
 
-        # Открываем фильтр "Год группы"
-        year_input = wait.until(EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[2]")))
-        year_input.click()
+        try:
+            year_input = wait.until(EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[2]")))
+            year_input.click()
+            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'2022')]"))).click()
+        except Exception as e:
+            return f"Ошибка на шаге: выбор фильтра 'Год группы' — {e}"
 
-        # Ждём появления контейнера списка и элемента "2022"
-        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
-        wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'2022')]"))).click()
+        try:
+            type_input = wait.until(EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[6]")))
+            type_input.click()
+            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Государственный детский сад')]"))).click()
+        except Exception as e:
+            return f"Ошибка на шаге: выбор фильтра 'Тип ДДО' — {e}"
 
-        # Открываем фильтр "Тип ДДО"
-        type_input = wait.until(EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[6]")))
-        type_input.click()
-
-        # Ждём появления контейнера списка и элемента "Государственный детский сад"
-        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
-        wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Государственный детский сад')]"))).click()
-
-        # Ждём загрузку строк таблицы
-        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-row")))
-
-        # Считаем строки с "№105"
-        rows = driver.find_elements(By.CLASS_NAME, "dx-row")
-        count = sum(1 for row in rows if "№105" in row.text)
-        return count
+        try:
+            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-row")))
+            rows = driver.find_elements(By.CLASS_NAME, "dx-row")
+            count = sum(1 for row in rows if "№105" in row.text)
+            return count
+        except Exception as e:
+            return f"Ошибка на шаге: чтение таблицы — {e}"
 
     except Exception as e:
-        return f"Ошибка: {e}"
+        return f"Ошибка общая: {e}"
     finally:
         driver.quit()
 
