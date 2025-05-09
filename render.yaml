@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: kindergarten-bot
+    env: docker
+    plan: free
+    autoDeploy: true
