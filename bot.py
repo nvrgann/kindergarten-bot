@@ -7,9 +7,11 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
+VERSION = "v7.0"
+
 def send_message(text):
     bot = telebot.TeleBot(TOKEN)
-    bot.send_message(CHAT_ID, text)
+    bot.send_message(CHAT_ID, f"[{VERSION}] {text}")
 
 def check_kindergarten():
     send_message("Шаг 1: запуск и открытие сайта")
