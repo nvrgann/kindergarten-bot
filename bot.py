@@ -7,7 +7,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-VERSION = "v7.4"
+VERSION = "v7.5"
+ALWAYS_REPORT = True
 print(f"[{VERSION}] bot.py запущен")
 
 def send_message(text):
@@ -15,19 +16,18 @@ def send_message(text):
     bot = telebot.TeleBot(TOKEN)
     bot.send_message(CHAT_ID, f"[{VERSION}] {text}")
 
-def select_type_ddo(wait, driver):
-    print("Пробуем выбрать тип ДДО...")
+def select_type_ddo(wait):
+    print("Пробуем найти input с aria-label='Тип ДДО'")
     for attempt in range(2):
         try:
-            inputs = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//input[@role='combobox']")))
-            if len(inputs) >= 6:
-                type_input = inputs[5]
-                type_input.click()
-                wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
-                wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Государственный детский сад')]"))).click()
-                return True
+            input_ddo = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@aria-label='Тип ДДО']")))
+            input_ddo.click()
+            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
+            wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Государственный детский сад')]"))).click()
+            print(f"Попытка {attempt+1}: успешно выбрали 'Государственный детский сад'")
+            return True
         except Exception as e:
-            print(f"Попытка {attempt+1} — не удалось выбрать тип ДДО: {type(e).__name__}")
+            print(f"Попытка {attempt+1} — ошибка при выборе типа ДДО: {type(e).__name__}")
             time.sleep(3)
     return False
 
@@ -42,7 +42,7 @@ def check_kindergarten():
         driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
         wait = WebDriverWait(driver, 60)
 
-        if not select_type_ddo(wait, driver):
+        if not select_type_ddo(wait):
             return "Ошибка: фильтр 'Тип ДДО' не найден после 2 попыток."
 
         # Выбор года
@@ -84,7 +84,7 @@ def check_kindergarten():
         elif all_found:
             return "В 105 садике мест нет. Зато есть:\n" + "\n".join(f"— {r}" for r in all_found)
         else:
-            return None  # ничего не отправлять
+            return "Проверка завершена. Свободных мест нет."
 
     except Exception as e:
         return f"Глобальная ошибка: {type(e).__name__} — {str(e)}"
@@ -93,5 +93,5 @@ def check_kindergarten():
 
 if __name__ == "__main__":
     result = check_kindergarten()
-    if result:
-        send_message(result)
+    if result or ALWAYS_REPORT:
+        send_message(result if result else "Проверка завершена. Свободных мест нет.")
