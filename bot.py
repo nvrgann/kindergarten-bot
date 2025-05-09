@@ -16,48 +16,31 @@ def check_kindergarten():
 
     try:
         driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
-        wait = WebDriverWait(driver, 20)
+        wait = WebDriverWait(driver, 30)
 
-        # Ожидаем кнопку "100 строк на странице"
-        page_size_button = wait.until(
-            EC.element_to_be_clickable((By.CLASS_NAME, "dx-page-size"))
-        )
+        # Выбор "100 записей на страницу"
+        page_size_button = wait.until(EC.element_to_be_clickable((By.CLASS_NAME, "dx-page-size")))
         page_size_button.click()
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'100')]"))).click()
 
-        # Ожидаем появление пункта "100"
-        option_100 = wait.until(
-            EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'100')]"))
-        )
-        option_100.click()
+        # Открываем фильтр "Год группы"
+        year_input = wait.until(EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[2]")))
+        year_input.click()
 
-        # Фильтр "Год группы" (вторая строка фильтра)
-        year_filter_input = wait.until(
-            EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[2]"))
-        )
-        year_filter_input.click()
+        # Ждём появления контейнера списка и элемента "2022"
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'2022')]"))).click()
 
-        # Ждём появление пункта "2022"
-        year_option = wait.until(
-            EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'2022')]"))
-        )
-        year_option.click()
+        # Открываем фильтр "Тип ДДО"
+        type_input = wait.until(EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[6]")))
+        type_input.click()
 
-        # Фильтр "Тип ДДО" (шестая строка фильтра)
-        type_filter_input = wait.until(
-            EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[6]"))
-        )
-        type_filter_input.click()
-
-        # Ждём "Государственный детский сад"
-        type_option = wait.until(
-            EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Государственный детский сад')]"))
-        )
-        type_option.click()
+        # Ждём появления контейнера списка и элемента "Государственный детский сад"
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Государственный детский сад')]"))).click()
 
         # Ждём загрузку строк таблицы
-        wait.until(
-            EC.presence_of_element_located((By.CLASS_NAME, "dx-row"))
-        )
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-row")))
 
         # Считаем строки с "№105"
         rows = driver.find_elements(By.CLASS_NAME, "dx-row")
