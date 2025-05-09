@@ -1,40 +1,113 @@
-import time from datetime import datetime from selenium import webdriver from selenium.webdriver.chrome.options import Options from selenium.webdriver.common.by import By from selenium.webdriver.support.ui import WebDriverWait from selenium.webdriver.support import expected_conditions as EC import telebot from config import TOKEN, CHAT_ID
+import time
+from datetime import datetime
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import telebot
+from config import TOKEN, CHAT_ID
 
-VERSION = "v8.7" log = []
+VERSION = "v8.7"
+bot = telebot.TeleBot(TOKEN)
+log = []
 
-def log_line(text): stamp = f"[{VERSION}] {text}" print(stamp) log.append(stamp)
+def log_step(message):
+    entry = f"[{VERSION}] {message}"
+    print(entry)
+    log.append(entry)
 
-def send_log(): if log: bot = telebot.TeleBot(TOKEN) bot.send_message(CHAT_ID, "\n".join(log), disable_notification=True)
+def send_log():
+    bot.send_message(CHAT_ID, "\n".join(log))
 
-def send_message(text, silent=False): bot = telebot.TeleBot(TOKEN) bot.send_message(CHAT_ID, f"[{VERSION}] {text}", disable_notification=silent)
+def setup_driver():
+    options = Options()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    return webdriver.Chrome(options=options)
 
-def switch_to_russian(wait, driver): try: lang_btn = wait.until(EC.presence_of_element_located((By.XPATH, "//a[contains(text(),'Рус')]"))) lang_btn.click() WebDriverWait(driver, 10).until_not(EC.presence_of_element_located((By.CLASS_NAME, "dx-loadpanel-content"))) log_line("Язык переключён на русский") return True except: log_line("Ошибка при переключении языка") return False
+def switch_to_russian(driver, wait):
+    try:
+        lang_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//span[contains(@class,'lang') and text()='ҚАЗ']")))
+        lang_button.click()
+        wait.until(EC.presence_of_element_located((By.XPATH, "//span[contains(text(),'РУС')]")))
+        log_step("Язык переключён на русский")
+        return True
+    except Exception as e:
+        log_step("Ошибка при переключении языка")
+        return False
 
-def select_ddo_type(wait, driver): try: inputs = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//input[@role='combobox']"))) for inp in inputs: if "Тип ДДО" in inp.get_attribute("aria-label"): inp.click() time.sleep(1) wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Государственный детский сад')]"))).click() return True return False except: return False
+def try_select_type_ddo(wait):
+    try:
+        input_box = wait.until(EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[6]")))
+        input_box.click()
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Государственный детский сад')]"))).click()
+        return True
+    except:
+        log_step("Не удалось выбрать 'Государственный детский сад'")
+        return False
 
-def select_year(wait, driver, year): try: inputs = driver.find_elements(By.XPATH, "//input[@role='combobox']") if len(inputs) >= 2: inputs[1].click() time.sleep(1) options = driver.find_elements(By.XPATH, f"//div[contains(text(),'{year}')]") if options: options[0].click() return True return False except: return False
+def run_stage(label, year=None, find_105=False):
+    log_step(f"Этап: {label}")
+    driver = setup_driver()
+    try:
+        driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
+        wait = WebDriverWait(driver, 60)
 
-def search_rows(driver): try: rows = driver.find_elements(By.CLASS_NAME, "dx-row") return [r.text.strip() for r in rows if "мест" in r.text] except: return []
+        if not switch_to_russian(driver, wait):
+            return
 
-def stage_check(driver, wait, year, search_105_only): if not switch_to_russian(wait, driver): return if not select_ddo_type(wait, driver): log_line("Не удалось выбрать 'Государственный детский сад'") return if not select_year(wait, driver, year): log_line(f"Группы {year} года отсутствуют.") return rows = search_rows(driver) if not rows: log_line("Нет результатов в таблице") return if search_105_only: found = [r for r in rows if "№105" in r] if found: for r in found: log_line(f"Найдено в 105: {r}") else: log_line("В 105 садике мест нет") else: for r in rows: log_line(f"Найдено: {r}")
+        if not try_select_type_ddo(wait):
+            return
 
-def main(): log_line(f"bot.py запущен — {datetime.now().strftime('%H:%M:%S')}") options = Options() options.add_argument('--headless') options.add_argument('--no-sandbox') options.add_argument('--disable-dev-shm-usage') driver = webdriver.Chrome(options=options) driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free") wait = WebDriverWait(driver, 30)
+        if year:
+            try:
+                year_input = wait.until(EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[2]")))
+                year_input.click()
+                wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
+                time.sleep(1)
+                options_list = driver.find_elements(By.XPATH, "//div[contains(@class, 'dx-item')]")
+                if any(str(year) in el.text for el in options_list):
+                    wait.until(EC.element_to_be_clickable((By.XPATH, f"//div[contains(text(),'{year}')]"))).click()
+                else:
+                    log_step(f"Группы {year} года отсутствуют.")
+                    return
+            except Exception as e:
+                log_step(f"Ошибка при выборе года {year}")
+                return
 
-stages = [
-    ("Гос + 2022 + №105", 2022, True),
-    ("Гос + 2022 + all", 2022, False),
-    ("Гос + 2020 + №105", 2020, True),
-    ("Гос + 2020 + all", 2020, False),
-]
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-row")))
+        rows = driver.find_elements(By.CLASS_NAME, "dx-row")
+        found_105 = 0
+        other = []
 
-for label, year, only105 in stages:
-    log_line(f"Этап: {label}")
-    driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
-    time.sleep(2)
-    stage_check(driver, wait, year, only105)
+        for row in rows:
+            text = row.text.strip()
+            if "мест" not in text:
+                continue
+            if "№105" in text:
+                found_105 += 1
+            else:
+                other.append(text)
 
-driver.quit()
-send_log()
+        if find_105 and found_105 > 0:
+            log_step(f"Найдено в 105 садике: {found_105} мест")
+        elif find_105:
+            log_step("В 105 садике мест нет.")
+        elif other:
+            log_step("Есть места:\n" + "\n".join(f"— {r}" for r in other))
+        else:
+            log_step("Нет мест.")
+    except Exception as e:
+        log_step(f"Глобальная ошибка: {type(e).__name__} — {str(e)}")
+    finally:
+        driver.quit()
 
-if name == "main": try: main() except Exception as e: log_line(f"Глобальная ошибка: {type(e).name} — {e}") send_log()
-
+if __name__ == "__main__":
+    log_step(f"bot.py запущен — {datetime.now().strftime('%H:%M:%S')}")
+    run_stage("Гос + 2022 + №105", year=2022, find_105=True)
+    run_stage("Гос + 2022 + all", year=2022)
+    run_stage("Гос + 2020 + №105", year=2020, find_105=True)
+    run_stage("Гос + 2020 + all", year=2020)
+    send_log()
