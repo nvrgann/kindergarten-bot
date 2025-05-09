@@ -7,31 +7,34 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-VERSION = "v7.5"
+VERSION = "v7.6"
 ALWAYS_REPORT = True
 print(f"[{VERSION}] bot.py запущен")
 
 def send_message(text):
-    print(f"[{VERSION}] {text}")
+    message = f"[{VERSION}] {text}"
+    print(message)
     bot = telebot.TeleBot(TOKEN)
-    bot.send_message(CHAT_ID, f"[{VERSION}] {text}")
+    bot.send_message(CHAT_ID, message)
 
-def select_type_ddo(wait):
-    print("Пробуем найти input с aria-label='Тип ДДО'")
-    for attempt in range(2):
+def find_combobox_with_option(wait, driver, target_text):
+    inputs = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//input[@role='combobox']")))
+    for i, combobox in enumerate(inputs):
         try:
-            input_ddo = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@aria-label='Тип ДДО']")))
-            input_ddo.click()
+            combobox.click()
             wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Государственный детский сад')]"))).click()
-            print(f"Попытка {attempt+1}: успешно выбрали 'Государственный детский сад'")
-            return True
-        except Exception as e:
-            print(f"Попытка {attempt+1} — ошибка при выборе типа ДДО: {type(e).__name__}")
-            time.sleep(3)
+            time.sleep(0.5)
+            options = driver.find_elements(By.XPATH, "//div[contains(@class,'dx-item')]")
+            for option in options:
+                if target_text in option.text:
+                    option.click()
+                    return True
+        except Exception:
+            continue
     return False
 
 def check_kindergarten():
+    send_message("bot.py запущен")
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
@@ -42,11 +45,11 @@ def check_kindergarten():
         driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
         wait = WebDriverWait(driver, 60)
 
-        if not select_type_ddo(wait):
-            return "Ошибка: фильтр 'Тип ДДО' не найден после 2 попыток."
+        send_message("Шаг 1: Поиск и выбор фильтра 'Тип ДДО'")
+        if not find_combobox_with_option(wait, driver, "Государственный детский сад"):
+            return "Ошибка: не удалось найти и выбрать 'Государственный детский сад'"
 
-        # Выбор года
-        print("Выбираем год 2022")
+        send_message("Шаг 2: Выбор года = 2022")
         try:
             year_input = wait.until(EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[2]")))
             year_input.click()
@@ -60,14 +63,12 @@ def check_kindergarten():
         except Exception as e:
             return f"Ошибка при выборе года: {type(e).__name__} — {str(e)}"
 
-        # Поиск садиков
-        print("Читаем таблицу")
+        send_message("Шаг 3: Проверка таблицы")
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-row")))
         rows = driver.find_elements(By.CLASS_NAME, "dx-row")
         if not rows:
             return "Ошибка: таблица не загрузилась или пуста."
 
-        # Сбор данных
         all_found = []
         priority_found = 0
         for row in rows:
