@@ -8,7 +8,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-VERSION = "v7.8"
+VERSION = "v7.9"
 ALWAYS_REPORT = True
 VERBOSE = True
 
@@ -29,26 +29,22 @@ def send_message(text):
     bot = telebot.TeleBot(TOKEN)
     bot.send_message(CHAT_ID, f"[{VERSION}] {text}")
 
-def find_combobox_with_option(wait, driver, target_text):
+def find_ddo_by_label_text(wait, driver, label_text, option_text):
     try:
-        inputs = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//input[@role='combobox']")))
-        for i, combobox in enumerate(inputs):
-            try:
-                log(f"Проверяем combobox [{i+1}]...")
-                combobox.click()
-                wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
-                time.sleep(0.5)
-                options = driver.find_elements(By.XPATH, "//div[contains(@class,'dx-item')]")
-                for option in options:
-                    if target_text in option.text:
-                        option.click()
-                        log("Найден нужный фильтр!")
-                        return True
-            except Exception:
-                continue
+        log(f"Ищем фильтр по тексту: '{label_text}'")
+        label = wait.until(EC.presence_of_element_located((By.XPATH, f"//*[contains(text(), '{label_text}')]")))
+        container = label.find_element(By.XPATH, "./ancestor::div[contains(@class, 'dx-field')]")
+        combobox = container.find_element(By.XPATH, ".//input[@role='combobox']")
+        combobox.click()
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
+        time.sleep(0.5)
+        option = driver.find_element(By.XPATH, f"//div[contains(text(), '{option_text}')]")
+        option.click()
+        log(f"Выбрано: {option_text}")
+        return True
     except Exception as e:
-        log(f"Ошибка при поиске фильтров: {type(e).__name__}")
-    return False
+        log(f"Ошибка при выборе фильтра '{label_text}': {type(e).__name__}")
+        return False
 
 def check_kindergarten():
     script_started = time.time()
@@ -67,9 +63,9 @@ def check_kindergarten():
         first_action_time = datetime.now()
         log(f"Первое действие: {first_action_time.strftime('%H:%M:%S')}")
 
-        log("Шаг 1: Поиск и выбор фильтра 'Тип ДДО'")
-        if not find_combobox_with_option(wait, driver, "Государственный детский сад"):
-            return "Ошибка: не удалось найти и выбрать 'Государственный детский сад'"
+        log("Шаг 1: Поиск фильтра 'Тип ДДО' по тексту")
+        if not find_ddo_by_label_text(wait, driver, "Тип ДДО", "Государственный детский сад"):
+            return "Ошибка: не удалось выбрать 'Государственный детский сад' по тексту"
 
         log("Шаг 2: Выбор года = 2022")
         try:
