@@ -8,9 +8,10 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-VERSION = "v7.9"
+VERSION = "v8.0"
 ALWAYS_REPORT = True
 VERBOSE = True
+SILENT = True  # лог без звука, результат — зависит от текста
 
 log_lines = []
 start_timestamp = datetime.now()
@@ -23,11 +24,14 @@ def log(text):
 def send_log():
     if VERBOSE and log_lines:
         bot = telebot.TeleBot(TOKEN)
-        bot.send_message(CHAT_ID, "\n".join(log_lines))
+        bot.send_message(CHAT_ID, "\n".join(log_lines), disable_notification=SILENT)
 
-def send_message(text):
+def send_result(text):
+    silent = SILENT
+    if "Найдено в 105" in text or "Зато есть:" in text:
+        silent = False
     bot = telebot.TeleBot(TOKEN)
-    bot.send_message(CHAT_ID, f"[{VERSION}] {text}")
+    bot.send_message(CHAT_ID, f"[{VERSION}] {text}", disable_notification=silent)
 
 def find_ddo_by_label_text(wait, driver, label_text, option_text):
     try:
@@ -116,4 +120,5 @@ if __name__ == "__main__":
     result = check_kindergarten()
     if result or ALWAYS_REPORT:
         log(result if result else "Проверка завершена. Свободных мест нет.")
+        send_result(result if result else "Проверка завершена.")
     send_log()
