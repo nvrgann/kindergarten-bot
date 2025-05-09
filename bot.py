@@ -12,7 +12,7 @@ def send_message(text):
     bot.send_message(CHAT_ID, text)
 
 def check_kindergarten():
-    send_message("Шаг 1: Запуск браузера и переход на сайт")
+    send_message("Шаг 1: запуск и открытие сайта")
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
@@ -23,24 +23,38 @@ def check_kindergarten():
         driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
         wait = WebDriverWait(driver, 30)
 
-        send_message("Шаг 2: Установка фильтра '100 записей'")
-        page_size_button = wait.until(EC.element_to_be_clickable((By.CLASS_NAME, "dx-page-size")))
-        page_size_button.click()
+        # 100 строк на страницу
+        send_message("Шаг 2: выбор 100 строк")
+        wait.until(EC.element_to_be_clickable((By.CLASS_NAME, "dx-page-size"))).click()
         wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'100')]"))).click()
 
-        send_message("Шаг 3: Выбор года группы = 2022")
-        year_input = wait.until(EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[2]")))
-        year_input.click()
-        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
-        wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'2022')]"))).click()
-
-        send_message("Шаг 4: Выбор типа ДДО = Государственный детский сад")
+        # Сначала выбираем тип ДДО
+        send_message("Шаг 3: выбор 'Государственный детский сад'")
         type_input = wait.until(EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[6]")))
         type_input.click()
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
         wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Государственный детский сад')]"))).click()
+        time.sleep(1)  # даём сайту обновить фильтры
 
-        send_message("Шаг 5: Чтение таблицы")
+        # Теперь проверяем наличие "2022"
+        send_message("Шаг 4: проверка наличия группы 2022 года")
+        year_input = wait.until(EC.element_to_be_clickable((By.XPATH, "(//input[@role='combobox'])[2]")))
+        year_input.click()
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
+        time.sleep(1)  # ждём подгрузку годов
+
+        options = driver.find_elements(By.XPATH, "//div[contains(@class, 'dx-item')]")
+        year_2022_exists = any("2022" in el.text for el in options)
+
+        if not year_2022_exists:
+            send_message("Группы 2022 года отсутствуют для выбранного типа ДДО")
+            return 0
+
+        # Если есть — выбираем
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'2022')]"))).click()
+
+        # Ждём таблицу
+        send_message("Шаг 5: проверка таблицы")
         wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-row")))
         rows = driver.find_elements(By.CLASS_NAME, "dx-row")
         count = sum(1 for row in rows if "№105" in row.text)
@@ -48,7 +62,7 @@ def check_kindergarten():
         return count
 
     except Exception as e:
-        return f"Ошибка на этапе: {str(e)}"
+        return f"Ошибка: {e}"
     finally:
         driver.quit()
 
@@ -57,6 +71,8 @@ if __name__ == "__main__":
     if isinstance(result, int):
         if result > 0:
             send_message(f"Найдено в 105 садике: {result} мест(а)")
+        elif result == 0:
+            pass  # ничего не отправляем, уже было сообщение про отсутствие
         else:
             send_message("В 105 садике мест нет.")
     else:
