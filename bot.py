@@ -8,124 +8,121 @@ from selenium.webdriver.support import expected_conditions as EC
 import telebot
 from config import TOKEN, CHAT_ID
 
-VERSION = "v8.8"
-SILENT = True  # Если True, лог отправляется без звука. Если найдено место — со звуком.
-log = []
+VERSION = "v8.9"
+SILENT = True
 
-def log_line(text):
-    timestamp = time.strftime("%H:%M:%S")
-    full_line = f"[{VERSION}] {text}"
-    print(full_line)
-    log.append(f"{full_line}")
+bot = telebot.TeleBot(TOKEN)
+log_messages = []
 
-def send_telegram(text, silent=True):
-    bot = telebot.TeleBot(TOKEN)
-    bot.send_message(CHAT_ID, text, disable_notification=silent)
+def log(msg, silent=False):
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    full = f"[{VERSION}] {msg}" if not msg.startswith("[") else msg
+    print(full)
+    log_messages.append(full)
+    if not silent or not SILENT:
+        bot.send_message(CHAT_ID, full, disable_notification=silent)
+
+def send_final_log():
+    try:
+        text = "\n".join(log_messages[-50:])
+        bot.send_message(CHAT_ID, f"ДетСадБот (лог):\n{text}", disable_notification=True)
+    except Exception as e:
+        print(f"Ошибка при отправке лога: {e}")
 
 def switch_to_russian(wait, driver):
     try:
-        lang_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@class, 'lang') and contains(text(), 'Рус')]")))
-        lang_button.click()
-        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-datagrid")))
-        log_line("Язык переключён на русский")
+        lang_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(text(),'Рус')]")))
+        lang_btn.click()
+        wait.until(lambda d: "Рус" in d.find_element(By.CLASS_NAME, "language-button").text)
+        log("Язык переключён на русский", silent=True)
         return True
-    except Exception as e:
-        log_line("Ошибка при переключении языка")
+    except Exception:
+        log("Ошибка при переключении языка")
         return False
 
-def select_ddo_type(wait, driver):
+def select_type_ddo(wait, driver):
     try:
         inputs = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//input[@role='combobox']")))
-        if len(inputs) >= 6:
-            inputs[5].click()
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
-            wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Государственный детский сад')]"))).click()
-            return True
-    except:
+        if len(inputs) < 6:
+            raise Exception("Недостаточно полей combobox")
+        inputs[5].click()
+        wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(text(),'Государственный детский сад')]"))).click()
+        return True
+    except Exception:
+        log("Не удалось выбрать 'Государственный детский сад'")
         return False
-    return False
 
-def select_year(wait, driver, year="2022"):
+def select_year(wait, driver, year):
     try:
         inputs = driver.find_elements(By.XPATH, "//input[@role='combobox']")
-        if len(inputs) >= 2:
-            inputs[1].click()
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
-            time.sleep(1)
-            elements = driver.find_elements(By.XPATH, "//div[contains(@class, 'dx-item')]")
-            if any(year in el.text for el in elements):
-                wait.until(EC.element_to_be_clickable((By.XPATH, f"//div[contains(text(),'{year}')]"))).click()
-                return True
-    except:
-        pass
-    return False
+        inputs[1].click()
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
+        options = driver.find_elements(By.XPATH, "//div[contains(@class,'dx-item')]")
+        if not any(year in el.text for el in options):
+            log(f"Группы {year} года отсутствуют.")
+            return False
+        driver.find_element(By.XPATH, f"//div[contains(text(),'{year}')]").click()
+        return True
+    except Exception:
+        log(f"Ошибка при выборе года {year}")
+        return False
 
-def read_table(driver):
-    rows = driver.find_elements(By.CLASS_NAME, "dx-row")
-    return [row.text.strip() for row in rows if row.text.strip() and "мест" in row.text]
+def get_table_rows(wait, driver):
+    try:
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-row")))
+        return driver.find_elements(By.CLASS_NAME, "dx-row")
+    except Exception:
+        return []
 
-def run_check(driver, wait, year, priority_only=False):
+def run_case(driver, wait, year, priority_only):
     if not switch_to_russian(wait, driver):
         return
-
-    if not select_ddo_type(wait, driver):
-        log_line("Не удалось выбрать 'Государственный детский сад'")
+    if not select_type_ddo(wait, driver):
         return
-
     if not select_year(wait, driver, year):
-        log_line(f"Группы {year} года отсутствуют.")
         return
-
-    try:
-        WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.CLASS_NAME, "dx-row")))
-        results = read_table(driver)
-        if not results:
-            log_line("Свободных мест не найдено.")
-            return
-        if priority_only:
-            filtered = [r for r in results if "№105" in r]
-            if filtered:
-                send_telegram(f"[{VERSION}] Найдено в 105 садике:\n" + "\n".join(filtered), silent=False)
-            else:
-                log_line("В 105 садике мест нет.")
+    rows = get_table_rows(wait, driver)
+    priority = [r.text.strip() for r in rows if "№105" in r.text and "мест" in r.text]
+    others = [r.text.strip() for r in rows if "мест" in r.text and "№105" not in r.text]
+    if priority_only:
+        if priority:
+            log(f"Найдено в 105 садике ({year}): {len(priority)} мест(а)")
         else:
-            send_telegram(f"[{VERSION}] Найдены места:\n" + "\n".join(results), silent=False)
-    except Exception as e:
-        log_line(f"Ошибка при чтении таблицы: {type(e).__name__}")
+            log(f"Нет мест в 105 садике ({year})")
+    else:
+        if others:
+            msg = f"Места в других садиках ({year}):\n" + "\n".join(f"— {r}" for r in others)
+            log(msg)
+        else:
+            log(f"Нет мест в других садиках ({year})")
 
-def main():
-    log_line(f"bot.py запущен — {datetime.now().strftime('%H:%M:%S')}")
+def check_all():
     options = Options()
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
     driver = webdriver.Chrome(options=options)
-
+    wait = WebDriverWait(driver, 60)
     try:
         driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
-        wait = WebDriverWait(driver, 60)
+        time.sleep(2)
 
-        log_line("Этап: Гос + 2022 + №105")
-        run_check(driver, wait, "2022", priority_only=True)
+        log(f"{VERSION} bot.py запущен — {datetime.now().strftime('%H:%M:%S')}")
+        log("Этап: Гос + 2022 + №105")
+        run_case(driver, wait, "2022", priority_only=True)
 
-        log_line("Этап: Гос + 2022 + all")
-        run_check(driver, wait, "2022", priority_only=False)
+        log("Этап: Гос + 2022 + all")
+        run_case(driver, wait, "2022", priority_only=False)
 
-        log_line("Этап: Гос + 2020 + №105")
-        run_check(driver, wait, "2020", priority_only=True)
+        log("Этап: Гос + 2020 + №105")
+        run_case(driver, wait, "2020", priority_only=True)
 
-        log_line("Этап: Гос + 2020 + all")
-        run_check(driver, wait, "2020", priority_only=False)
-
-    except Exception as e:
-        log_line(f"Глобальная ошибка: {type(e).__name__} — {str(e)}")
+        log("Этап: Гос + 2020 + all")
+        run_case(driver, wait, "2020", priority_only=False)
 
     finally:
         driver.quit()
-        try:
-            send_telegram("\n".join(log), silent=SILENT)
-        except:
-            pass
+        send_final_log()
 
 if __name__ == "__main__":
-    main()
+    check_all()
