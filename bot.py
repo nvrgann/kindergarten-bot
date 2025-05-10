@@ -1,118 +1,97 @@
 import time
+import telebot
 from datetime import datetime
+from config import TOKEN, CHAT_ID
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import telebot
-from config import TOKEN, CHAT_ID
 
-VERSION = "v9.11"
-bot = telebot.TeleBot(TOKEN)
-log_lines = []
+VERSION = "v9.12"
 
-def log(message):
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    full_message = f"[{VERSION}] {timestamp} — {message}"
-    print(full_message)
-    log_lines.append(full_message)
+def send(text):
+    now = datetime.now().strftime('%H:%M:%S')
+    msg = f"[{VERSION}] {now} — {text}"
+    print(msg)
+    bot = telebot.TeleBot(TOKEN)
+    bot.send_message(CHAT_ID, msg)
 
-def send_log():
-    text = "\n".join(log_lines)
-    if text:
-        bot.send_message(CHAT_ID, text[:4000])
+def open_site(driver):
+    send("Открываем сайт...")
+    driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
+    WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.CLASS_NAME, "dx-datagrid")))
 
-def open_driver():
+def select_combobox_value(wait, label_text, value_text):
+    try:
+        label = wait.until(EC.presence_of_element_located((
+            By.XPATH, f"//label[contains(text(), '{label_text}')]/following-sibling::div//input")))
+        label.click()
+        wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
+        time.sleep(1)
+        item = wait.until(EC.element_to_be_clickable((
+            By.XPATH, f"//div[contains(@class,'dx-item') and contains(text(), '{value_text}')]")))
+        item.click()
+        return True
+    except Exception:
+        return False
+
+def find_rows(driver):
+    time.sleep(2)
+    return driver.find_elements(By.CLASS_NAME, "dx-row")
+
+def check_kindergarten():
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    return webdriver.Chrome(options=options)
+    driver = webdriver.Chrome(options=options)
 
-def wait_for_language_switch(wait):
     try:
-        log("Ожидание: кнопка языка (до 60 сек.)")
-        button = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, '/ru')]")))
-        button.click()
-        log("Язык переключён на русский")
-        return True
-    except Exception:
-        log("Ошибка при ожидании '//a[contains(@href, '/ru')]': TimeoutException")
-        log("Ошибка при переключении языка")
-        return False
+        wait = WebDriverWait(driver, 60)
 
-def select_filters(wait, driver):
-    try:
-        inputs = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//input[@role='combobox']")))
-        if len(inputs) >= 6:
-            # Тип ДДО — Мемлекеттік балабақша
-            inputs[5].click()
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
-            time.sleep(1)
-            driver.find_element(By.XPATH, "//div[contains(text(),'Мемлекеттік балабақша')]").click()
-            # Год — 2022
-            inputs[1].click()
-            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
-            time.sleep(1)
-            driver.find_element(By.XPATH, "//div[contains(text(),'2022')]").click()
-            return True
-    except Exception:
-        return False
-    return False
+        for year in ["2022", "2020"]:
+            for target in ["№105", "all"]:
+                send(f"Этап: Мемлекеттік + {year} + {target}")
+                open_site(driver)
 
-def check_table(driver):
-    try:
-        rows = driver.find_elements(By.CLASS_NAME, "dx-row")
-        if not rows:
-            return "Ошибка: таблица не загрузилась или пуста."
-        all_found = []
-        priority_found = 0
-        for row in rows:
-            text = row.text.strip()
-            if not text or "орын" not in text:
-                continue
-            if "№105" in text:
-                priority_found += 1
-            else:
-                all_found.append(text)
-        if priority_found > 0:
-            return f"Найдено в 105 садике: {priority_found} орын(ы)"
-        elif all_found:
-            return "В 105 садике мест нет. Зато есть:\n" + "\n".join(f"— {r}" for r in all_found)
-        else:
-            return None
+                if not select_combobox_value(wait, "Топтың жылы", year):
+                    send(f"Ошибка: не удалось выбрать год {year}")
+                    continue
+                if not select_combobox_value(wait, "Балабақшаның түрі", "Мемлекеттік балабақша"):
+                    send("Ошибка: не удалось выбрать тип ДДО")
+                    continue
+
+                rows = find_rows(driver)
+                if not rows:
+                    send("Таблица пуста")
+                    continue
+
+                found = []
+                count_105 = 0
+                for r in rows:
+                    t = r.text.strip()
+                    if not t or "орын" not in t:
+                        continue
+                    if "№105" in t:
+                        count_105 += 1
+                    else:
+                        found.append(t)
+
+                if target == "№105":
+                    if count_105 > 0:
+                        send(f"Найдено в 105 садике: {count_105} мест(а)")
+                        return
+                else:
+                    if found:
+                        send("В 105 садике мест нет. Зато есть:\n" + "\n".join(f"— {r}" for r in found))
+                        return
+
     except Exception as e:
-        return f"Ошибка при чтении таблицы: {type(e).__name__}"
-
-def run_bot():
-    log(f"{VERSION} bot.py запущен — {datetime.now().strftime('%H:%M:%S')}")
-    for attempt in range(1, 4):
-        log("Открываем сайт...")
-        driver = open_driver()
-        try:
-            driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
-            wait = WebDriverWait(driver, 60)
-            log("Страница открыта")
-
-            if not wait_for_language_switch(wait):
-                driver.quit()
-                continue
-
-            if not select_filters(wait, driver):
-                log("Не удалось выбрать фильтры")
-                driver.quit()
-                continue
-
-            result = check_table(driver)
-            if result:
-                log(result)
-            driver.quit()
-            break
-        except Exception as e:
-            log(f"Глобальная ошибка: {type(e).__name__} — {str(e)}")
-            driver.quit()
-    send_log()
+        send(f"Глобальная ошибка: {type(e).__name__} — {str(e)}")
+    finally:
+        driver.quit()
 
 if __name__ == "__main__":
-    run_bot()
+    send(f"{VERSION} bot.py запущен — {datetime.now().strftime('%H:%M:%S')}")
+    check_kindergarten()
