@@ -8,75 +8,111 @@ from selenium.webdriver.support import expected_conditions as EC
 import telebot
 from config import TOKEN, CHAT_ID
 
-VERSION = "v9.10"
-URL = "https://balabaqsha.open-almaty.kz/Common/Statistics/Free"
-
+VERSION = "v9.11"
 bot = telebot.TeleBot(TOKEN)
-full_log = []
+log_lines = []
 
-def log(msg):
+def log(message):
     timestamp = datetime.now().strftime("%H:%M:%S")
-    line = f"[{VERSION}] {timestamp} — {msg}"
-    print(line)
-    full_log.append(line)
-    return line
-
-def send(text, silent=True):
-    bot.send_message(CHAT_ID, f"[{VERSION}] {text}", disable_notification=silent)
+    full_message = f"[{VERSION}] {timestamp} — {message}"
+    print(full_message)
+    log_lines.append(full_message)
 
 def send_log():
-    if full_log:
-        bot.send_message(CHAT_ID, "\n".join(full_log[-50:]))
+    text = "\n".join(log_lines)
+    if text:
+        bot.send_message(CHAT_ID, text[:4000])
 
-def try_click_language(driver, wait):
-    log("Ожидание: //a[contains(@href, '/ru')] (до 60 сек.)")
+def open_driver():
+    options = Options()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    return webdriver.Chrome(options=options)
+
+def wait_for_language_switch(wait):
     try:
-        lang_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, '/ru')]")))
-        lang_button.click()
-        time.sleep(1)
+        log("Ожидание: кнопка языка (до 60 сек.)")
+        button = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, '/ru')]")))
+        button.click()
         log("Язык переключён на русский")
         return True
-    except Exception as e:
-        log(f"Ошибка при ожидании '//a[contains(@href, '/ru')]': {type(e).__name__}")
+    except Exception:
+        log("Ошибка при ожидании '//a[contains(@href, '/ru')]': TimeoutException")
+        log("Ошибка при переключении языка")
         return False
 
-def open_site():
-    log("Страница открыта")
-
-def run_scenario(label):
-    log(f"Этап: {label}")
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    driver = webdriver.Chrome(options=options)
-
+def select_filters(wait, driver):
     try:
-        driver.get(URL)
-        open_site()
-        wait = WebDriverWait(driver, 60)
+        inputs = wait.until(EC.presence_of_all_elements_located((By.XPATH, "//input[@role='combobox']")))
+        if len(inputs) >= 6:
+            # Тип ДДО — Мемлекеттік балабақша
+            inputs[5].click()
+            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
+            time.sleep(1)
+            driver.find_element(By.XPATH, "//div[contains(text(),'Мемлекеттік балабақша')]").click()
+            # Год — 2022
+            inputs[1].click()
+            wait.until(EC.presence_of_element_located((By.CLASS_NAME, "dx-overlay-content")))
+            time.sleep(1)
+            driver.find_element(By.XPATH, "//div[contains(text(),'2022')]").click()
+            return True
+    except Exception:
+        return False
+    return False
 
-        for attempt in range(3):
-            success = try_click_language(driver, wait)
-            if success:
-                break
+def check_table(driver):
+    try:
+        rows = driver.find_elements(By.CLASS_NAME, "dx-row")
+        if not rows:
+            return "Ошибка: таблица не загрузилась или пуста."
+        all_found = []
+        priority_found = 0
+        for row in rows:
+            text = row.text.strip()
+            if not text or "орын" not in text:
+                continue
+            if "№105" in text:
+                priority_found += 1
             else:
-                log("Ошибка при переключении языка")
-                driver.refresh()
-                log("Страница открыта")
+                all_found.append(text)
+        if priority_found > 0:
+            return f"Найдено в 105 садике: {priority_found} орын(ы)"
+        elif all_found:
+            return "В 105 садике мест нет. Зато есть:\n" + "\n".join(f"— {r}" for r in all_found)
         else:
-            log("Не удалось переключить язык после 3 попыток")
+            return None
+    except Exception as e:
+        return f"Ошибка при чтении таблицы: {type(e).__name__}"
 
-    finally:
-        driver.quit()
-
-def main():
+def run_bot():
     log(f"{VERSION} bot.py запущен — {datetime.now().strftime('%H:%M:%S')}")
-    run_scenario("Гос + 2022 + №105")
-    run_scenario("Гос + 2022 + all")
-    run_scenario("Гос + 2020 + №105")
-    run_scenario("Гос + 2020 + all")
+    for attempt in range(1, 4):
+        log("Открываем сайт...")
+        driver = open_driver()
+        try:
+            driver.get("https://balabaqsha.open-almaty.kz/Common/Statistics/Free")
+            wait = WebDriverWait(driver, 60)
+            log("Страница открыта")
+
+            if not wait_for_language_switch(wait):
+                driver.quit()
+                continue
+
+            if not select_filters(wait, driver):
+                log("Не удалось выбрать фильтры")
+                driver.quit()
+                continue
+
+            result = check_table(driver)
+            if result:
+                log(result)
+            driver.quit()
+            break
+        except Exception as e:
+            log(f"Глобальная ошибка: {type(e).__name__} — {str(e)}")
+            driver.quit()
     send_log()
 
 if __name__ == "__main__":
-    main()
+    run_bot()
